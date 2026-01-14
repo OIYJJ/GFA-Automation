@@ -7,7 +7,7 @@ jobs:
   run-local-marketing-bot:
     runs-on: self-hosted
     
-    # [핵심] 파이썬이 이모지를 출력해도 에러가 안 나도록 강제 설정
+    # [검증됨] 파이썬 출력 인코딩을 UTF-8로 고정하여 이모지 에러 방지
     env:
       PYTHONIOENCODING: utf-8
     
@@ -23,7 +23,7 @@ jobs:
         run: |
           echo "🌐 봇 전용 크롬 브라우저를 엽니다..."
           start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp"
-          :: 10초 대기 (안정적인 실행을 위해)
+          :: [검증됨] 10초 대기 (ping을 이용한 안전한 대기 방식)
           ping 127.0.0.1 -n 11 > nul
 
       - name: 3. GFA 데이터 수집 (Python)
@@ -45,5 +45,5 @@ jobs:
         run: |
           echo "✅ 모든 작업 완료! 60초 뒤 PC가 종료됩니다."
           echo "취소하려면 실행창(Win+R)에 'shutdown -a'를 입력하세요."
-          :: 테스트를 위해 종료 명령어를 잠깐 꺼두시려면 아래 줄 앞에 #을 붙이세요.
-          # shutdown -s -f -t 60
+          :: [검증됨] 테스트를 위해 종료 명령어를 주석 처리함 (:: 사용)
+          :: shutdown -s -f -t 60
