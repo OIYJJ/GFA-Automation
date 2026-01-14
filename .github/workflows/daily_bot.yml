@@ -14,44 +14,39 @@ jobs:
           chcp 65001
           echo "🚀 [Start] GFA 마케팅 봇을 가동합니다..."
 
-      - name: 2. [강력 초기화] 기존 크롬 종료 및 청소
+      - name: 2. [초기화] 기존 크롬 및 임시폴더 삭제
         shell: cmd
         run: |
-          echo "🧹 실행 중인 모든 크롬 프로세스를 종료합니다..."
+          echo "🧹 청소 시작..."
           taskkill /F /IM chrome.exe /T 2>nul
-          
-          echo "🧹 꼬여있는 임시 폴더(chrometemp)를 삭제합니다..."
           if exist "C:\chrometemp" rmdir /s /q "C:\chrometemp"
-          
-          echo "✅ 초기화 완료. 3초 대기..."
-          ping 127.0.0.1 -n 4 > nul
+          ping 127.0.0.1 -n 3 > nul
 
-      - name: 3. 봇 전용 크롬 실행 (디버깅 모드)
+      - name: 3. [통합] 크롬 실행 및 데이터 수집
         shell: cmd
         run: |
-          echo "🌐 새 크롬 브라우저를 엽니다..."
-          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp"
+          echo "🌐 크롬 브라우저를 엽니다 (안전 옵션 적용)..."
+          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp" --no-sandbox --disable-gpu --disable-dev-shm-usage
           
-          echo "⏳ 크롬이 완전히 켜질 때까지 15초간 대기합니다..."
-          ping 127.0.0.1 -n 16 > nul
-
-      - name: 4. GFA 데이터 수집 (Python)
-        shell: cmd
-        run: |
-          echo "🔍 데이터 수집 스크립트(gfa_bot_final.py) 실행..."
+          echo "⏳ 크롬 안정화를 위해 10초 대기..."
+          ping 127.0.0.1 -n 11 > nul
+          
+          echo "🔍 파이썬 스크립트 실행..."
+          set PYTHONIOENCODING=utf-8
           cd /d "C:\Users\82108\Desktop\업무자동화"
           python gfa_bot_final.py
 
-      - name: 5. 구글 시트 업로드 (Python)
+      - name: 4. 구글 시트 업로드
         shell: cmd
         run: |
-          echo "☁️ 구글 시트 업로드 스크립트(gfa_to_sheet.py) 실행..."
+          echo "☁️ 구글 시트 업로드 실행..."
+          set PYTHONIOENCODING=utf-8
           cd /d "C:\Users\82108\Desktop\업무자동화"
           python gfa_to_sheet.py
 
-      - name: 6. 작업 완료 및 PC 종료 (안전장치)
+      - name: 5. 작업 완료
         shell: cmd
         run: |
-          echo "✅ 모든 작업 완료! 60초 뒤 PC가 종료됩니다."
-          echo "취소하려면 실행창(Win+R)에 'shutdown -a'를 입력하세요."
+          echo "✅ 모든 작업이 완료되었습니다."
+          echo "60초 뒤 PC가 종료됩니다. (취소하려면 Win+R -> shutdown -a)"
           shutdown -s -f -t 60
