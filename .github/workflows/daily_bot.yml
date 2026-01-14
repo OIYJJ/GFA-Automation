@@ -1,12 +1,11 @@
 name: GFA Marketing Bot (Lee's PC)
 
-# 1. 언제 실행할까? -> 'workflow_dispatch'는 수동(버튼) 실행을 의미합니다.
 on:
   workflow_dispatch:
 
 jobs:
   run-local-marketing-bot:
-    runs-on: self-hosted  # [핵심] GitHub 서버가 아니라 Lee님의 PC에서 실행합니다.
+    runs-on: self-hosted
     
     steps:
       - name: 1. 자동화 시작 & 한글 설정
@@ -20,7 +19,8 @@ jobs:
         run: |
           echo "🌐 크롬 브라우저를 엽니다..."
           start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp"
-          timeout /t 10
+          :: [수정됨] timeout 에러 방지를 위해 ping 명령어로 10초 대기합니다.
+          ping 127.0.0.1 -n 11 > nul
 
       - name: 3. GFA 데이터 수집 (Python)
         shell: cmd
@@ -41,4 +41,5 @@ jobs:
         run: |
           echo "✅ 모든 작업 완료! 60초 뒤 PC가 종료됩니다."
           echo "취소하려면 실행창(Win+R)에 'shutdown -a'를 입력하세요."
+          :: 작업이 끝나면 PC를 끕니다 (테스트 땐 이 줄을 지워도 됩니다)
           shutdown -s -f -t 60
