@@ -2,15 +2,10 @@ name: GFA Marketing Bot (Lee's PC)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '20 20 * * *'
 
 jobs:
   run-local-marketing-bot:
     runs-on: self-hosted
-    
-    env:
-      PYTHONIOENCODING: utf-8
     
     steps:
       - name: 1. 자동화 시작 & 한글 설정
@@ -19,34 +14,44 @@ jobs:
           chcp 65001
           echo "🚀 [Start] GFA 마케팅 봇을 가동합니다..."
 
-      - name: 2. 크롬 디버깅 모드 실행 (안전 모드)
+      - name: 2. [강력 초기화] 기존 크롬 종료 및 청소
         shell: cmd
         run: |
-          echo "🧹 기존 크롬 정리 및 임시 폴더 초기화..."
-          taskkill /F /IM chrome.exe /T > nul 2>&1
+          echo "🧹 실행 중인 모든 크롬 프로세스를 종료합니다..."
+          taskkill /F /IM chrome.exe /T 2>nul
           
-          echo "🌐 봇 전용 크롬을 실행합니다..."
-          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp" --no-first-run --no-default-browser-check
+          echo "🧹 꼬여있는 임시 폴더(chrometemp)를 삭제합니다..."
+          if exist "C:\chrometemp" rmdir /s /q "C:\chrometemp"
           
-          echo "⏳ 크롬 로딩 대기 (20초)..."
-          ping 127.0.0.1 -n 21 > nul
+          echo "✅ 초기화 완료. 3초 대기..."
+          ping 127.0.0.1 -n 4 > nul
 
-      - name: 3. GFA 데이터 수집 (Python)
+      - name: 3. 봇 전용 크롬 실행 (디버깅 모드)
         shell: cmd
         run: |
-          echo "🔍 데이터 수집 스크립트 실행 중..."
+          echo "🌐 새 크롬 브라우저를 엽니다..."
+          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp"
+          
+          echo "⏳ 크롬이 완전히 켜질 때까지 15초간 대기합니다..."
+          ping 127.0.0.1 -n 16 > nul
+
+      - name: 4. GFA 데이터 수집 (Python)
+        shell: cmd
+        run: |
+          echo "🔍 데이터 수집 스크립트(gfa_bot_final.py) 실행..."
           cd /d "C:\Users\82108\Desktop\업무자동화"
           python gfa_bot_final.py
 
-      - name: 4. 구글 시트 업로드 (Python)
+      - name: 5. 구글 시트 업로드 (Python)
         shell: cmd
         run: |
-          echo "☁️ 구글 시트 업로드 스크립트 실행 중..."
+          echo "☁️ 구글 시트 업로드 스크립트(gfa_to_sheet.py) 실행..."
           cd /d "C:\Users\82108\Desktop\업무자동화"
           python gfa_to_sheet.py
 
-      - name: 5. 작업 완료 및 PC 종료
+      - name: 6. 작업 완료 및 PC 종료 (안전장치)
         shell: cmd
         run: |
           echo "✅ 모든 작업 완료! 60초 뒤 PC가 종료됩니다."
+          echo "취소하려면 실행창(Win+R)에 'shutdown -a'를 입력하세요."
           shutdown -s -f -t 60
