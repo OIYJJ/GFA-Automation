@@ -1,0 +1,44 @@
+name: GFA Marketing Bot (Lee's PC)
+
+# 1. 언제 실행할까? -> 'workflow_dispatch'는 수동(버튼) 실행을 의미합니다.
+on:
+  workflow_dispatch:
+
+jobs:
+  run-local-marketing-bot:
+    runs-on: self-hosted  # [핵심] GitHub 서버가 아니라 Lee님의 PC에서 실행합니다.
+    
+    steps:
+      - name: 1. 자동화 시작 & 한글 설정
+        shell: cmd
+        run: |
+          chcp 65001
+          echo "🚀 [Start] GFA 마케팅 봇을 가동합니다..."
+
+      - name: 2. 크롬 디버깅 모드 실행 (새 창 띄우기)
+        shell: cmd
+        run: |
+          echo "🌐 크롬 브라우저를 엽니다..."
+          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp"
+          timeout /t 10
+
+      - name: 3. GFA 데이터 수집 (Python)
+        shell: cmd
+        run: |
+          echo "🔍 데이터 수집 스크립트 실행 중..."
+          cd /d "C:\Users\82108\Desktop\업무자동화"
+          python gfa_bot_final.py
+
+      - name: 4. 구글 시트 업로드 (Python)
+        shell: cmd
+        run: |
+          echo "☁️ 구글 시트 업로드 스크립트 실행 중..."
+          cd /d "C:\Users\82108\Desktop\업무자동화"
+          python gfa_to_sheet.py
+
+      - name: 5. 작업 완료 및 PC 종료 (안전장치 60초)
+        shell: cmd
+        run: |
+          echo "✅ 모든 작업 완료! 60초 뒤 PC가 종료됩니다."
+          echo "취소하려면 실행창(Win+R)에 'shutdown -a'를 입력하세요."
+          shutdown -s -f -t 60
