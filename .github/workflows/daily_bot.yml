@@ -1,6 +1,11 @@
 name: GFA Marketing Bot (Lee's PC)
 
 on:
+  # 1. 스케줄 실행: 매일 한국 시간 05:30 (UTC 20:30)
+  schedule:
+    - cron: '30 20 * * *'
+  
+  # 2. 수동 실행: 테스트용 버튼 유지
   workflow_dispatch:
 
 jobs:
@@ -12,9 +17,9 @@ jobs:
         shell: cmd
         run: |
           chcp 65001
-          echo "🚀 [Start] GFA 마케팅 봇을 가동합니다..."
+          echo "🚀 [Auto] 05:30 정기 실행: GFA 마케팅 봇을 가동합니다..."
 
-      - name: 2. [수정됨] 크롬 종료 (로그인 정보는 유지)
+      - name: 2. 크롬 정리 (로그인 정보 유지)
         shell: cmd
         run: |
           echo "🧹 실행 중인 크롬 프로세스만 종료합니다 (쿠키 보존)..."
@@ -23,7 +28,7 @@ jobs:
           echo "✅ 프로세스 정리 완료. 3초 대기..."
           ping 127.0.0.1 -n 4 > nul
 
-      - name: 3. [통합] 크롬 실행 및 데이터 수집
+      - name: 3. 크롬 실행 및 데이터 수집
         shell: cmd
         run: |
           echo "🌐 크롬 브라우저를 엽니다 (로그인 정보 로드)..."
@@ -32,7 +37,7 @@ jobs:
           echo "⏳ 로그인 세션 로딩 및 페이지 안정화 (10초 대기)..."
           ping 127.0.0.1 -n 11 > nul
           
-          echo "🔍 파이썬 스크립트 실행..."
+          echo "🔍 파이썬 수집 스크립트 실행..."
           set PYTHONIOENCODING=utf-8
           cd /d "C:\Users\82108\Desktop\업무자동화"
           python gfa_bot_final.py
@@ -45,7 +50,7 @@ jobs:
           cd /d "C:\Users\82108\Desktop\업무자동화"
           python gfa_to_sheet.py
 
-      - name: 5. 작업 완료
+      - name: 5. 작업 완료 및 PC 종료
         shell: cmd
         run: |
           echo "✅ 모든 작업이 완료되었습니다."
