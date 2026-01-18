@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: '30 20 * * *'
   
-  # 2. 수동 실행: 테스트용 버튼 유지
+  # 2. 수동 실행: 테스트용 버튼 활성화
   workflow_dispatch:
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
         shell: cmd
         run: |
           echo "🧹 실행 중인 크롬 프로세스를 정리합니다..."
-          :: [중요] /F(강제종료) 옵션을 제거하여 쿠키 손상을 방지합니다.
+          :: [중요] /F 옵션 없이 종료 시도하여 쿠키 손상 방지
           taskkill /IM chrome.exe /T 2>nul
           
           echo "✅ 프로세스 정리 신호 전송. 5초 대기..."
@@ -33,15 +33,13 @@ jobs:
         shell: cmd
         run: |
           echo "🌐 크롬 브라우저를 엽니다 (로그인 정보 로드)..."
-          :: start 명령어에 /MIN 옵션을 추가하여 작업 방해 최소화 (선택 사항)
-          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp" --no-sandbox --disable-gpu --disable-dev-shm-usage
+          :: [수정됨] 복구 팝업 방지 및 인포바 제거 옵션 추가
+          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp" --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --restore-last-session
           
           echo "⏳ 로그인 세션 로딩 및 페이지 안정화 (20초 대기)..."
-          :: PC 성능에 따라 로딩 시간이 다를 수 있어 10초 -> 20초로 연장
           ping 127.0.0.1 -n 21 > nul
           
           echo "🔍 파이썬 수집 스크립트 실행..."
-          :: 파이썬 인코딩 강제 설정
           set PYTHONIOENCODING=utf-8
           set PYTHONUTF8=1
           
