@@ -1,12 +1,20 @@
 name: GFA Marketing Bot (Lee's PC)
 
 on:
-  # 1. 스케줄 실행: 매일 한국 시간 05:30 (UTC 20:30)
+  # 1. 스케줄 실행 (로그인 유지 전략 적용)
+  # 한국 시간(KST) 기준: 05:30, 11:30, 17:30, 23:30 (6시간 간격)
+  # 설명: 잦은 접속으로 네이버 세션 만료를 방지합니다. (메인 작업은 파이썬 내부에서 시간으로 분기 처리 가능)
   schedule:
-    - cron: '30 20 * * *'
+    - cron: '30 20,2,8,14 * * *'
   
-  # 2. 수동 실행: 테스트용 버튼 활성화
+  # 2. 수동 실행
   workflow_dispatch:
+
+# [설정] 작업 경로를 환경 변수로 관리 (수정이 필요할 때 여기만 바꾸면 됨)
+env:
+  WORK_DIR: "C:\\Users\\82108\\Desktop\\업무자동화"
+  CHROME_PATH: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
+  PROFILE_PATH: "C:\\chrometemp"
 
 jobs:
   run-local-marketing-bot:
@@ -17,50 +25,62 @@ jobs:
         shell: cmd
         run: |
           chcp 65001
-          echo "🚀 [Auto] 05:30 정기 실행: GFA 마케팅 봇을 가동합니다..."
+          echo "🚀 [Start] GFA 마케팅 봇 자동화 루틴을 시작합니다..."
 
       - name: 2. 크롬 정리 (세션 보호 모드)
         shell: cmd
         run: |
-          echo "🧹 실행 중인 크롬 프로세스를 정리합니다..."
-          :: [중요] /F 옵션 없이 종료 시도하여 쿠키 손상 방지
+          echo "🧹 혹시 켜져 있을지 모르는 크롬을 정리합니다..."
+          :: [/F 강제 종료 옵션 제거] 세션 파일(Cookies) 손상을 막기 위해 부드러운 종료 시도
+          :: 오류 발생(2>nul)은 무시하여 스크립트가 멈추지 않게 함
           taskkill /IM chrome.exe /T 2>nul
           
-          echo "✅ 프로세스 정리 신호 전송. 5초 대기..."
+          echo "⏳ 프로세스가 완전히 닫히고 파일이 저장되도록 5초 대기..."
           ping 127.0.0.1 -n 6 > nul
 
       - name: 3. 크롬 디버깅 모드 실행
         shell: cmd
         run: |
-          echo "🌐 크롬 브라우저를 엽니다 (로그인 정보 로드)..."
-          :: [수정됨] 복구 팝업 방지 및 인포바 제거 옵션 추가
-          start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --remote-debugging-port=9222 --user-data-dir="C:\chrometemp" --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --restore-last-session
+          echo "🌐 크롬 브라우저를 엽니다 (디버깅 포트: 9222)..."
           
-          echo "⏳ 로그인 세션 로딩 및 페이지 안정화 (20초 대기)..."
+          :: [옵션 설명]
+          :: --disable-session-crashed-bubble: "비정상 종료됨" 팝업 차단 (필수)
+          :: --no-first-run --no-default-browser-check: 초기 설정 팝업 차단
+          :: --window-size=1920,1080: 요소 가림 방지
+          :: [삭제됨] --restore-last-session: 오히려 복구 팝업을 띄울 수 있어 삭제함
+          
+          start "" "${{ env.CHROME_PATH }}" --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
+          
+          echo "⏳ 브라우저 로딩 및 자동 로그인 세션 활성화 대기 (20초)..."
           ping 127.0.0.1 -n 21 > nul
-          
-          echo "🔍 파이썬 수집 스크립트 실행..."
-          set PYTHONIOENCODING=utf-8
-          set PYTHONUTF8=1
-          
-          cd /d "C:\Users\82108\Desktop\업무자동화"
-          python gfa_bot_final.py
 
-      - name: 4. 구글 시트 업로드
+      - name: 4. 파이썬 수집 스크립트 실행
         shell: cmd
         run: |
-          echo "☁️ 구글 시트 업로드 실행..."
+          echo "🔍 [Step 1] 데이터 수집 스크립트(gfa_bot_final.py) 실행..."
           set PYTHONIOENCODING=utf-8
           set PYTHONUTF8=1
           
-          cd /d "C:\Users\82108\Desktop\업무자동화"
+          cd /d "${{ env.WORK_DIR }}"
+          python gfa_bot_final.py
+
+      - name: 5. 구글 시트 업로드 실행
+        shell: cmd
+        run: |
+          echo "☁️ [Step 2] 구글 시트 업로드(gfa_to_sheet.py) 실행..."
+          set PYTHONIOENCODING=utf-8
+          set PYTHONUTF8=1
+          
+          cd /d "${{ env.WORK_DIR }}"
           python gfa_to_sheet.py
 
-      - name: 5. 작업 완료 및 PC 종료 (성공 시에만)
+      - name: 6. 작업 완료 및 PC 종료 (성공 시에만)
         if: success()
         shell: cmd
         run: |
           echo "✅ 모든 작업이 성공적으로 완료되었습니다."
-          echo "🛑 3분(180초) 뒤 PC가 종료됩니다. (작업 확인 시간 확보)"
-          echo "취소하려면 실행창(Win+R)에 'shutdown -a'를 입력하세요."
+          echo "🛑 3분(180초) 뒤 PC가 종료됩니다. (결과 확인용 여유 시간)"
+          echo "⚠️ 종료를 취소하려면 [Win+R] -> [shutdown -a] 입력하세요."
+          
+          :: /f (강제 종료) 옵션은 PC 전원을 확실히 끄기 위해 유지
           shutdown -s -f -t 180
