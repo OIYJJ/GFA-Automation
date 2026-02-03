@@ -2,13 +2,9 @@ name: GFA Marketing Bot (Lee's PC)
 
 on:
   schedule:
-    # 1. 메인 실행 (새벽 05:30 KST)
-    - cron: '30 20 * * *'
-    # 2. 세션 연장 1 (오후 13:00 KST)
-    - cron: '0 4 * * *'
-    # 3. 세션 연장 2 (오후 15:20 KST)
-    - cron: '20 6 * * *'
-  
+    - cron: '30 20 * * *' # 05:30 (새벽 메인)
+    - cron: '0 4 * * *'   # 13:00 (점심 연장)
+    - cron: '20 6 * * *'  # 15:20 (오후 연장)
   workflow_dispatch:
 
 env:
@@ -26,16 +22,14 @@ jobs:
         shell: cmd
         run: |
           chcp 65001
-          echo "🚀 현재 시간을 확인하여 실행 모드를 결정합니다..."
-          
           for /f %%H in ('powershell -command "(Get-Date).Hour"') do set CURRENT_HOUR=%%H
           echo 현재 시간: %CURRENT_HOUR%시
           
           if "%CURRENT_HOUR%"=="5" (
-            echo "🌙 [새벽 모드] 메인 수집 작업입니다."
+            echo "🌙 [새벽 모드] 메인 수집 작업"
             echo MAIN_RUN=true>> %GITHUB_ENV%
           ) else (
-            echo "☀️ [업무 모드] 세션 연장 작업입니다."
+            echo "☀️ [업무 모드] 세션 연장 작업"
             echo MAIN_RUN=false>> %GITHUB_ENV%
           )
 
@@ -43,35 +37,30 @@ jobs:
         if: env.MAIN_RUN == 'true'
         shell: cmd
         run: |
-          echo "🧹 [새벽] PC 클린업을 위해 모든 크롬을 정리합니다..."
+          echo "🧹 [새벽] 모든 크롬 프로세스 정리..."
           taskkill /IM chrome.exe /T 2>nul
           ping 127.0.0.1 -n 4 > nul
 
-      - name: 3. 크롬 봇 브라우저 실행 (핀셋 정리 포함)
+      - name: 3. 크롬 봇 브라우저 실행 (안정성 강화)
         shell: cmd
         run: |
-          echo "🌐 봇 전용 크롬 브라우저를 실행합니다..."
-          
-          :: [핵심 수정] 업무용 크롬은 살리고, 'chrometemp' 프로필을 쓰는 봇 크롬만 골라서 죽입니다.
-          :: 이 과정이 없으면 '좀비 프로세스' 때문에 포트 연결 에러가 발생합니다.
-          echo "💉 봇 전용 좀비 프로세스 제거 중..."
+          echo "💉 [업무모드] 좀비 프로세스 방지 (chrometemp만 종료)..."
           powershell -command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-          
-          echo "♻️ 프로세스 정리 완료. 브라우저 재시작..."
           ping 127.0.0.1 -n 3 > nul
           
-          start "" "${{ env.CHROME_PATH }}" --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --no-sandbox --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
+          echo "🌐 봇 브라우저 실행..."
+          :: [수정] --no-sandbox 옵션 제외 (일부 환경에서 충돌 원인)
+          :: [수정] 로딩 대기시간 대폭 증가 (PC 부하 고려)
+          start "" "${{ env.CHROME_PATH }}" --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
           
-          echo "⏳ 브라우저 연결 대기 (15초)..."
-          ping 127.0.0.1 -n 16 > nul
+          echo "⏳ 브라우저 완전 로딩 대기 (30초)..."
+          ping 127.0.0.1 -n 31 > nul
 
       - name: 4. 파이썬 스크립트 실행
         shell: cmd
         run: |
-          echo "🔍 스크립트 실행..."
           set PYTHONIOENCODING=utf-8
           set PYTHONUTF8=1
-          
           cd /d "${{ env.WORK_DIR }}"
           python gfa_bot_final.py
 
@@ -79,10 +68,8 @@ jobs:
         if: env.MAIN_RUN == 'true'
         shell: cmd
         run: |
-          echo "☁️ [새벽] 데이터 업로드..."
           set PYTHONIOENCODING=utf-8
           set PYTHONUTF8=1
-          
           cd /d "${{ env.WORK_DIR }}"
           python gfa_to_sheet.py
 
@@ -91,9 +78,9 @@ jobs:
         shell: cmd
         run: |
           if "%MAIN_RUN%"=="true" (
-             echo "🌙 [새벽] 작업 완료. 봇 브라우저 종료 및 PC 끄기"
+             echo "🌙 [새벽] 작업 완료. 전체 종료."
              taskkill /IM chrome.exe /T 2>nul
              shutdown -s -f -t 180
           ) else (
-             echo "☀️ [업무] 세션 연장 완료. 크롬 창을 유지합니다."
+             echo "☀️ [업무] 작업 완료. 세션 연장 성공."
           )
