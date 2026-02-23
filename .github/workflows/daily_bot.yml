@@ -37,8 +37,9 @@ jobs:
         if: env.MAIN_RUN == 'true'
         shell: cmd
         run: |
-          echo "🧹 [새벽] 모든 크롬 프로세스 정리..."
-          taskkill /IM chrome.exe /T 2>nul
+          echo "🧹 [새벽] 모든 크롬 프로세스 강제 정리..."
+          :: [/F] 옵션을 추가하여 좀비 프로세스까지 확실하게 강제 종료합니다.
+          taskkill /F /IM chrome.exe /T 2>nul
           ping 127.0.0.1 -n 4 > nul
 
       - name: 3. 크롬 봇 브라우저 실행 (안정성 강화)
@@ -48,13 +49,19 @@ jobs:
           powershell -command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
           ping 127.0.0.1 -n 3 > nul
           
+          echo "🔓 프로필 잠금 파일(SingletonLock) 삭제 중..."
+          :: 크롬 비정상 종료 시 남는 잠금 파일을 제거하여 실행 실패를 방지합니다.
+          if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
+          
           echo "🌐 봇 브라우저 실행..."
-          :: [수정] --no-sandbox 옵션 제외 (일부 환경에서 충돌 원인)
-          :: [수정] 로딩 대기시간 대폭 증가 (PC 부하 고려)
           start "" "${{ env.CHROME_PATH }}" --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
           
           echo "⏳ 브라우저 완전 로딩 대기 (30초)..."
           ping 127.0.0.1 -n 31 > nul
+
+          echo "🔍 포트 9222 활성화 상태 확인:"
+          :: 파이썬 실행 전 포트가 정상적으로 열렸는지 로그에 출력합니다.
+          netstat -ano | findstr 9222
 
       - name: 4. 파이썬 스크립트 실행
         shell: cmd
@@ -79,8 +86,7 @@ jobs:
         run: |
           if "%MAIN_RUN%"=="true" (
              echo "🌙 [새벽] 작업 완료. 전체 종료."
-             taskkill /IM chrome.exe /T 2>nul
-             shutdown -s -f -t 180
+             taskkill /F /IM chrome.exe /T 2>nul
           ) else (
              echo "☀️ [업무] 작업 완료. 세션 연장 성공."
           )
