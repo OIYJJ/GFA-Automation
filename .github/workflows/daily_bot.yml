@@ -25,7 +25,7 @@ jobs:
           for /f %%H in ('powershell -command "(Get-Date).Hour"') do set CURRENT_HOUR=%%H
           echo 현재 시간: %CURRENT_HOUR%시
           
-          :: [추가] 사용자가 'Run workflow' 버튼을 직접 누른 경우 무조건 메인 작업 실행
+          :: [추가] 사용자가 'Run workflow' 버튼을 직접 누른 경우 무조건 메인 작업(수집) 강제 실행
           if "${{ github.event_name }}"=="workflow_dispatch" (
             echo "⚡ [수동 모드] 메인 수집 강제 실행"
             echo MAIN_RUN=true>> %GITHUB_ENV%
@@ -45,11 +45,10 @@ jobs:
         shell: cmd
         run: |
           echo "🧹 [새벽] 모든 크롬 프로세스 강제 정리..."
-          :: [/F] 옵션을 추가하여 좀비 프로세스까지 확실하게 강제 종료합니다.
           taskkill /F /IM chrome.exe /T 2>nul
           ping 127.0.0.1 -n 4 > nul
 
-      - name: 3. 크롬 봇 브라우저 실행 (안정성 강화)
+      - name: 3. 크롬 봇 브라우저 실행 (안정성 강화 및 복구 팝업 원천 차단)
         shell: cmd
         run: |
           echo "💉 [업무모드] 좀비 프로세스 방지 (chrometemp만 종료)..."
@@ -57,17 +56,23 @@ jobs:
           ping 127.0.0.1 -n 3 > nul
           
           echo "🔓 프로필 잠금 파일(SingletonLock) 삭제 중..."
-          :: 크롬 비정상 종료 시 남는 잠금 파일을 제거하여 실행 실패를 방지합니다.
           if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
           
+          echo "🛠️ 크롬 일기장 조작 중 (비정상 종료 팝업 방지)..."
+          :: 크롬 설정 파일에서 Crashed(비정상 종료) 기록을 Normal(정상 종료)로 텍스트 치환합니다.
+          if exist "${{ env.PROFILE_PATH }}\Default\Preferences" (
+            powershell -command "(Get-Content '${{ env.PROFILE_PATH }}\Default\Preferences' -Raw) -replace '\"exit_type\":\"Crashed\"', '\"exit_type\":\"Normal\"' | Set-Content '${{ env.PROFILE_PATH }}\Default\Preferences'"
+          )
+          
           echo "🌐 봇 브라우저 실행..."
-          start "" "${{ env.CHROME_PATH }}" --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
+          :: --remote-allow-origins=* 옵션 추가로 파이썬 접속 차단 방지
+          :: --hide-crash-restore-bubble 옵션 추가로 팝업 강제 숨김
+          start "" "${{ env.CHROME_PATH }}" --remote-allow-origins=* --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --hide-crash-restore-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
           
           echo "⏳ 브라우저 완전 로딩 대기 (30초)..."
           ping 127.0.0.1 -n 31 > nul
 
           echo "🔍 포트 9222 활성화 상태 확인:"
-          :: 파이썬 실행 전 포트가 정상적으로 열렸는지 로그에 출력합니다.
           netstat -ano | findstr 9222
 
       - name: 4. 파이썬 스크립트 실행
@@ -94,6 +99,9 @@ jobs:
           if "%MAIN_RUN%"=="true" (
              echo "🌙 [새벽] 작업 완료. 전체 종료."
              taskkill /F /IM chrome.exe /T 2>nul
+             :: 안전을 위해 테스트 중에는 PC 자동 종료 명령어를 비활성화(주석 처리) 해두었습니다.
+             :: 실제 운영 시 아래 줄의 :: 를 지워주시면 됩니다.
+             :: shutdown -s -f -t 180
           ) else (
              echo "☀️ [업무] 작업 완료. 세션 연장 성공."
           )
