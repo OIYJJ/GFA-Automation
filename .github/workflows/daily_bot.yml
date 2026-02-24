@@ -25,6 +25,13 @@ jobs:
           for /f %%H in ('powershell -command "(Get-Date).Hour"') do set CURRENT_HOUR=%%H
           echo 현재 시간: %CURRENT_HOUR%시
           
+          :: [추가] 사용자가 'Run workflow' 버튼을 직접 누른 경우 무조건 메인 작업 실행
+          if "${{ github.event_name }}"=="workflow_dispatch" (
+            echo "⚡ [수동 모드] 메인 수집 강제 실행"
+            echo MAIN_RUN=true>> %GITHUB_ENV%
+            exit /b 0
+          )
+          
           if "%CURRENT_HOUR%"=="5" (
             echo "🌙 [새벽 모드] 메인 수집 작업"
             echo MAIN_RUN=true>> %GITHUB_ENV%
