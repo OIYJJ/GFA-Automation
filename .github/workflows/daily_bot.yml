@@ -59,14 +59,13 @@ jobs:
           if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
           
           echo "🛠️ 크롬 일기장 조작 중 (비정상 종료 팝업 방지)..."
-          :: 크롬 설정 파일에서 Crashed(비정상 종료) 기록을 Normal(정상 종료)로 텍스트 치환합니다.
+          :: 크롬 설정 파일에서 Crashed 기록을 Normal로 강제 치환하여 복구 팝업을 원천 차단합니다.
           if exist "${{ env.PROFILE_PATH }}\Default\Preferences" (
             powershell -command "(Get-Content '${{ env.PROFILE_PATH }}\Default\Preferences' -Raw) -replace '\"exit_type\":\"Crashed\"', '\"exit_type\":\"Normal\"' | Set-Content '${{ env.PROFILE_PATH }}\Default\Preferences'"
           )
           
           echo "🌐 봇 브라우저 실행..."
-          :: --remote-allow-origins=* 옵션 추가로 파이썬 접속 차단 방지
-          :: --hide-crash-restore-bubble 옵션 추가로 팝업 강제 숨김
+          :: --remote-allow-origins=* 및 --hide-crash-restore-bubble 옵션 추가로 안정성 확보
           start "" "${{ env.CHROME_PATH }}" --remote-allow-origins=* --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --hide-crash-restore-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
           
           echo "⏳ 브라우저 완전 로딩 대기 (30초)..."
@@ -99,8 +98,7 @@ jobs:
           if "%MAIN_RUN%"=="true" (
              echo "🌙 [새벽] 작업 완료. 전체 종료."
              taskkill /F /IM chrome.exe /T 2>nul
-             :: 안전을 위해 테스트 중에는 PC 자동 종료 명령어를 비활성화(주석 처리) 해두었습니다.
-             :: 실제 운영 시 아래 줄의 :: 를 지워주시면 됩니다.
+             :: 테스트 중 PC 자동 종료를 방지하기 위해 아래 줄을 주석 처리해 두었습니다.
              :: shutdown -s -f -t 180
           ) else (
              echo "☀️ [업무] 작업 완료. 세션 연장 성공."
