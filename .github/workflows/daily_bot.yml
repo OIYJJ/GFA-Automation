@@ -1,107 +1,77 @@
-name: GFA Daily Update (Lee PC)
+name: GFA Marketing Bot (Lee's PC)
 
 on:
   schedule:
-    - cron: '30 20 * * *' # 05:30 KST (UTC+9)
+    - cron: '30 20 * * *' # 05:30 KST
+    - cron: '0 4 * * *'   # 13:00 KST
+    - cron: '20 6 * * *'  # 15:20 KST
   workflow_dispatch:
+    inputs:
+      force_main_run:
+        description: "true 입력 시 즉시 데이터 수집 실행"
+        required: false
+        default: "true"
 
 concurrency:
-  group: gfa-daily-lee-pc
+  group: gfa-marketing-bot-lee-pc
   cancel-in-progress: true
 
 env:
   WORK_DIR: "C:\\Users\\82108\\Desktop\\업무자동화"
-  CHROME_PATH: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
   PROFILE_PATH: "C:\\chrometemp"
-  DEBUG_PORT: "9222"
 
 jobs:
-  run-gfa:
-    runs-on: [self-hosted, windows, x64]
-    timeout-minutes: 30
+  run-local-marketing-bot:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 20
 
     steps:
-      - name: 1) 사전 점검
+      - name: 1) 시간대 및 실행 모드 설정
         shell: cmd
         run: |
           chcp 65001
-          if not exist "${{ env.WORK_DIR }}" (echo ❌ WORK_DIR 없음 && exit /b 1)
-          if not exist "${{ env.CHROME_PATH }}" (echo ❌ CHROME_PATH 없음 && exit /b 1)
-          where python || (echo ❌ python 없음 && exit /b 1)
-          if not exist "${{ env.PROFILE_PATH }}" mkdir "${{ env.PROFILE_PATH }}"
+          set "FORCE_MAIN=${{ github.event.inputs.force_main_run }}"
+          set "SCHEDULE=${{ github.event.schedule }}"
 
-      - name: 2) 봇 크롬 정밀 종료 + 잠금파일 제거
-        shell: cmd
-        run: |
-          chcp 65001
-          echo 🧹 chrometemp 사용하는 크롬만 종료...
-          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-
-          echo 🔓 Singleton* 제거...
-          del /f /q "${{ env.PROFILE_PATH }}\SingletonLock" 2>nul
-          del /f /q "${{ env.PROFILE_PATH }}\SingletonCookie" 2>nul
-          del /f /q "${{ env.PROFILE_PATH }}\SingletonSocket" 2>nul
-
-      - name: 3) 크롬 실행 (원격디버깅)
-        shell: cmd
-        run: |
-          chcp 65001
-          echo 🌐 Chrome start...
-          start "" "${{ env.CHROME_PATH }}" ^
-            --remote-allow-origins=* ^
-            --remote-debugging-port=${{ env.DEBUG_PORT }} ^
-            --remote-debugging-address=127.0.0.1 ^
-            --user-data-dir="${{ env.PROFILE_PATH }}" ^
-            --disable-gpu ^
-            --disable-dev-shm-usage ^
-            --disable-session-crashed-bubble ^
-            --hide-crash-restore-bubble ^
-            --no-first-run ^
-            --no-default-browser-check ^
-            --window-size=1920,1080
-
-      - name: 4) DevTools 응답 확인 (json/version)
-        shell: cmd
-        run: |
-          chcp 65001
-          echo ⏳ DevTools ready check (최대 60초)...
-          set /a TRY=0
-          :RETRY
-          set /a TRY+=1
-          powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:${{ env.DEBUG_PORT }}/json/version -TimeoutSec 2; if($r.StatusCode -eq 200){ exit 0 } else { exit 1 } } catch { exit 1 }"
-          if %ERRORLEVEL%==0 (
-            echo ✅ DevTools OK
-            powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:${{ env.DEBUG_PORT }}/json/version -TimeoutSec 2 | Select-Object -Expand Content"
-            goto :OK
+          if /I "%FORCE_MAIN%"=="true" (
+            echo 🌙 [수동-강제] MAIN_RUN=true
+            echo MAIN_RUN=true>> "%GITHUB_ENV%"
+          ) else if "%SCHEDULE%"=="30 20 * * *" (
+            echo 🌙 [새벽 모드] 메인 수집 + 업로드 활성화
+            echo MAIN_RUN=true>> "%GITHUB_ENV%"
+          ) else (
+            echo ☀️ [업무 모드] 세션 연장 모드
+            echo MAIN_RUN=false>> "%GITHUB_ENV%"
           )
-          if %TRY% GEQ 12 (echo ❌ DevTools not ready && exit /b 1)
-          echo ...retry (%TRY%/12)
-          ping 127.0.0.1 -n 6 > nul
-          goto :RETRY
-          :OK
 
-      - name: 5) GFA 수집 실행
+      - name: 2) 사전 청소 및 복구 팝업 원천 차단
+        shell: cmd
+        run: |
+          chcp 65001
+          echo 🧹 파이썬 실행 전, 엉켜있는 크롬 찌꺼기를 정리합니다...
+          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+          
+          if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
+          
+          echo 🛠️ 크롬 '비정상 종료' 팝업을 띄우지 못하도록 기록을 세탁합니다...
+          set "PREF_FILE=${{ env.PROFILE_PATH }}\Default\Preferences"
+          if exist "%PREF_FILE%" (
+            powershell -NoProfile -Command "$p='%PREF_FILE%'; $t=Get-Content $p -Raw; if($t -match 'exit_type\":\"Crashed'){ $t2=$t -replace 'exit_type\":\"Crashed','exit_type\":\"Normal'; Set-Content $p $t2 -Encoding UTF8; echo '✅ 팝업 방지 패치 완료' }"
+          )
+
+      - name: 3) GFA 데이터 수집 (파이썬이 직접 크롬 실행)
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
           chcp 65001
           set "PYTHONIOENCODING=utf-8"
-          set "PYTHONUTF8=1"
           python gfa_bot_final.py
 
-      - name: 6) 구글 시트 업로드 실행
+      - name: 4) 구글 시트 업로드
+        if: env.MAIN_RUN == 'true'
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
           chcp 65001
           set "PYTHONIOENCODING=utf-8"
-          set "PYTHONUTF8=1"
           python gfa_to_sheet.py
-
-      - name: 7) 종료 처리 (항상)
-        if: always()
-        shell: cmd
-        run: |
-          chcp 65001
-          echo 🧹 봇 크롬 종료...
-          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
