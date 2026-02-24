@@ -8,9 +8,10 @@ on:
   workflow_dispatch:
     inputs:
       force_main_run:
-        description: "true 입력 시 즉시 데이터 수집 실행"
+        description: "수동 실행 (체크 시 데이터 즉시 수집)"
         required: false
-        default: "true"
+        type: boolean
+        default: true
 
 concurrency:
   group: gfa-marketing-bot-lee-pc
@@ -18,48 +19,32 @@ concurrency:
 
 env:
   WORK_DIR: "C:\\Users\\82108\\Desktop\\업무자동화"
-  PROFILE_PATH: "C:\\chrometemp"
 
 jobs:
   run-local-marketing-bot:
     runs-on: [self-hosted, windows]
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
-      - name: 1) 시간대 및 실행 모드 설정
+      - name: 1. 실행 모드 설정 (수집 vs 세션 연장)
         shell: cmd
         run: |
           chcp 65001
-          set "FORCE_MAIN=${{ github.event.inputs.force_main_run }}"
-          set "SCHEDULE=${{ github.event.schedule }}"
-
-          if /I "%FORCE_MAIN%"=="true" (
-            echo 🌙 [수동-강제] MAIN_RUN=true
+          if "${{ github.event.inputs.force_main_run }}"=="true" (
             echo MAIN_RUN=true>> "%GITHUB_ENV%"
-          ) else if "%SCHEDULE%"=="30 20 * * *" (
-            echo 🌙 [새벽 모드] 메인 수집 + 업로드 활성화
+          ) else if "${{ github.event.schedule }}"=="30 20 * * *" (
             echo MAIN_RUN=true>> "%GITHUB_ENV%"
           ) else (
-            echo ☀️ [업무 모드] 세션 연장 모드
             echo MAIN_RUN=false>> "%GITHUB_ENV%"
           )
 
-      - name: 2) 사전 청소 및 복구 팝업 원천 차단
+      - name: 2. 크롬 프로세스 정리 (충돌 방지)
         shell: cmd
         run: |
           chcp 65001
-          echo 🧹 파이썬 실행 전, 엉켜있는 크롬 찌꺼기를 정리합니다...
           powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-          
-          if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
-          
-          echo 🛠️ 크롬 '비정상 종료' 팝업을 띄우지 못하도록 기록을 세탁합니다...
-          set "PREF_FILE=${{ env.PROFILE_PATH }}\Default\Preferences"
-          if exist "%PREF_FILE%" (
-            powershell -NoProfile -Command "$p='%PREF_FILE%'; $t=Get-Content $p -Raw; if($t -match 'exit_type\":\"Crashed'){ $t2=$t -replace 'exit_type\":\"Crashed','exit_type\":\"Normal'; Set-Content $p $t2 -Encoding UTF8; echo '✅ 팝업 방지 패치 완료' }"
-          )
 
-      - name: 3) GFA 데이터 수집 (파이썬이 직접 크롬 실행)
+      - name: 3. 파이썬 실행 (GFA 데이터 수집)
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -67,7 +52,7 @@ jobs:
           set "PYTHONIOENCODING=utf-8"
           python gfa_bot_final.py
 
-      - name: 4) 구글 시트 업로드
+      - name: 4. 파이썬 실행 (구글 시트 업로드)
         if: env.MAIN_RUN == 'true'
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
