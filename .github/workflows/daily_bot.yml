@@ -2,13 +2,13 @@ name: GFA Marketing Bot (Lee's PC)
 
 on:
   schedule:
-    - cron: '30 20 * * *' # 05:30 KST
-    - cron: '0 4 * * *'   # 13:00 KST
-    - cron: '20 6 * * *'  # 15:20 KST
+    - cron: '30 20 * * *' # 05:30 KST (새벽 수집)
+    - cron: '0 4 * * *'   # 13:00 KST (점심 세션 연장)
+    - cron: '20 6 * * *'  # 15:20 KST (오후 세션 연장)
   workflow_dispatch:
     inputs:
       force_main_run:
-        description: "true 입력 시 즉시 데이터 수집 실행"
+        description: "수동 실행 시 데이터 수집 강제 여부 (true/false)"
         required: false
         default: "true"
 
@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: 1) 시간대 및 실행 모드 설정
+      - name: 1. 실행 모드 설정 (수집 vs 세션 연장)
         shell: cmd
         run: |
           chcp 65001
@@ -44,22 +44,22 @@ jobs:
             echo MAIN_RUN=false>> "%GITHUB_ENV%"
           )
 
-      - name: 2) 사전 청소 및 복구 팝업 원천 차단
+      - name: 2. 이전 크롬 찌꺼기 정리 및 팝업 방지 패치
         shell: cmd
         run: |
           chcp 65001
-          echo 🧹 파이썬 실행 전, 엉켜있는 크롬 찌꺼기를 정리합니다...
+          echo 🧹 남아있는 봇 전용 크롬 프로세스를 정리합니다...
           powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
           
           if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
           
-          echo 🛠️ 크롬 '비정상 종료' 팝업을 띄우지 못하도록 기록을 세탁합니다...
+          echo 🛠️ 크롬 '비정상 종료' 팝업을 띄우지 못하도록 Preferences를 세탁합니다...
           set "PREF_FILE=${{ env.PROFILE_PATH }}\Default\Preferences"
           if exist "%PREF_FILE%" (
             powershell -NoProfile -Command "$p='%PREF_FILE%'; $t=Get-Content $p -Raw; if($t -match 'exit_type\":\"Crashed'){ $t2=$t -replace 'exit_type\":\"Crashed','exit_type\":\"Normal'; Set-Content $p $t2 -Encoding UTF8; echo '✅ 팝업 방지 패치 완료' }"
           )
 
-      - name: 3) GFA 데이터 수집 (파이썬이 직접 크롬 실행)
+      - name: 3. GFA 데이터 수집 (파이썬 스크립트 1)
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
@@ -67,7 +67,7 @@ jobs:
           set "PYTHONIOENCODING=utf-8"
           python gfa_bot_final.py
 
-      - name: 4) 구글 시트 업로드
+      - name: 4. 구글 시트 업로드 (파이썬 스크립트 2)
         if: env.MAIN_RUN == 'true'
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
