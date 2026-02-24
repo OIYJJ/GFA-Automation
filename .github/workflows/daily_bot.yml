@@ -2,17 +2,16 @@ name: GFA Marketing Bot (Lee's PC)
 
 on:
   schedule:
-    - cron: '30 20 * * *' # 05:30 KST (새벽 메인)
-    - cron: '0 4 * * *'   # 13:00 KST (점심 연장)
-    - cron: '20 6 * * *'  # 15:20 KST (오후 연장)
+    # 한국 시간 기준 매일 아침 05:30 실행 (UTC 기준 20:30)
+    - cron: '30 20 * * *'
   workflow_dispatch:
     inputs:
-      force_main_run:
-        description: "수동 실행 시 MAIN_RUN 강제(true/false). 비우면 schedule 기준 자동 결정"
-        required: false
-        default: ""
+      force_run:
+        description: "수동으로 즉시 실행하시겠습니까?"
+        required: true
+        type: boolean
+        default: true
 
-# 동시 실행 방지 (이미 실행 중인 작업과 충돌 방지)
 concurrency:
   group: gfa-marketing-bot-lee-pc
   cancel-in-progress: true
@@ -24,69 +23,35 @@ env:
   DEBUG_PORT: "9222"
 
 jobs:
-  run-local-marketing-bot:
-    runs-on: [self-hosted, windows, x64]
+  run-local-bot:
+    runs-on: [self-hosted, windows]
     timeout-minutes: 30
 
     steps:
-      - name: 1) 시간대 및 실행 모드 설정
+      - name: 1. 기존 봇 크롬 및 찌꺼기 완벽 청소
         shell: cmd
         run: |
           chcp 65001
-          set "FORCE_MAIN=${{ github.event.inputs.force_main_run }}"
-          set "SCHEDULE=${{ github.event.schedule }}"
-
-          if not "%FORCE_MAIN%"=="" (
-            if /I "%FORCE_MAIN%"=="true" (
-              echo 🌙 [수동-강제] MAIN_RUN=true
-              echo MAIN_RUN=true>> "%GITHUB_ENV%"
-              goto :EOF
-            )
-            if /I "%FORCE_MAIN%"=="false" (
-              echo ☀️ [수동-강제] MAIN_RUN=false
-              echo MAIN_RUN=false>> "%GITHUB_ENV%"
-              goto :EOF
-            )
-          )
-
-          if "%SCHEDULE%"=="30 20 * * *" (
-            echo 🌙 [새벽 모드] 메인 수집 + 업로드 활성화
-            echo MAIN_RUN=true>> "%GITHUB_ENV%"
-          ) else (
-            echo ☀️ [업무 모드] 세션 연장 모드
-            echo MAIN_RUN=false>> "%GITHUB_ENV%"
-          )
-
-      - name: 2) 사전 점검 (경로 및 파이썬)
-        shell: cmd
-        run: |
-          chcp 65001
-          if not exist "${{ env.WORK_DIR }}" (echo ❌ WORK_DIR 없음 && exit /b 1)
-          if not exist "${{ env.CHROME_PATH }}" (echo ❌ CHROME_PATH 없음 && exit /b 1)
-          where python || (echo ❌ python 없음 && exit /b 1)
-
-      - name: 3) 크롬 프로세스 격리 종료 및 설정 패치 (팝업 차단)
-        shell: cmd
-        run: |
-          chcp 65001
-          echo 🧹 봇 전용 크롬(chrometemp)만 정밀 종료...
-          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-          
-          echo 🔓 프로필 잠금(Singleton*) 및 임시 파일 정리...
+          echo 🧹 이전 작업의 찌꺼기를 청소합니다...
+          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
           if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
-          if exist "${{ env.PROFILE_PATH }}\SingletonCookie" del /f /q "${{ env.PROFILE_PATH }}\SingletonCookie"
-          
-          echo 🛠️ [중요] 비정상 종료 기록 세탁 (복구 팝업 원천 차단)...
+          ping 127.0.0.1 -n 3 > nul
+
+      - name: 2. 크롬 일기장 조작 (비정상 종료 팝업 원천 차단)
+        shell: cmd
+        run: |
+          chcp 65001
+          echo 🛠️ 크롬이 '정상 종료'되었다고 속여 복구 팝업을 막습니다...
           set "PREF_FILE=${{ env.PROFILE_PATH }}\Default\Preferences"
           if exist "%PREF_FILE%" (
-            powershell -NoProfile -Command "$p='%PREF_FILE%'; $t=Get-Content $p -Raw; if($t -match 'exit_type\":\"Crashed'){ $t2=$t -replace 'exit_type\":\"Crashed','exit_type\":\"Normal'; Set-Content $p $t2 -Encoding UTF8; echo '✅ Preferences Patched' }else{ echo 'ℹ️ Already Normal' }"
+            powershell -NoProfile -Command "$p='%PREF_FILE%'; $t=Get-Content $p -Raw; if($t -match 'exit_type\":\"Crashed'){ $t2=$t -replace 'exit_type\":\"Crashed','exit_type\":\"Normal'; Set-Content $p $t2 -Encoding UTF8; echo '✅ 팝업 차단 패치 완료' }"
           )
 
-      - name: 4) 크롬 실행 및 포트 통신 검증 (TCP Check)
+      - name: 3. 봇 전용 크롬 브라우저 안전 실행
         shell: cmd
         run: |
           chcp 65001
-          echo 🌐 봇 크롬 실행 (보안/통신 옵션 강화)...
+          echo 🌐 통신 주소를 127.0.0.1로 고정하여 크롬을 켭니다...
           start "" "${{ env.CHROME_PATH }}" ^
             --remote-allow-origins=* ^
             --remote-debugging-port=${{ env.DEBUG_PORT }} ^
@@ -99,42 +64,37 @@ jobs:
             --no-first-run ^
             --window-size=1920,1080
 
-          echo ⏳ 포트 오픈 검증 시작 (최대 60초)...
+          echo ⏳ 브라우저 준비 대기 및 포트 검사 (최대 30초)...
           set /a TRY=0
           :RETRY_PORT
           set /a TRY+=1
           powershell -NoProfile -Command "if ((Test-NetConnection 127.0.0.1 -Port ${{ env.DEBUG_PORT }}).TcpTestSucceeded) { exit 0 } else { exit 1 }"
-          if %ERRORLEVEL%==0 (echo ✅ 포트 %DEBUG_PORT% 활성화 확인! && goto :PORT_OK)
-          if %TRY% GEQ 12 (echo ❌ 포트 응답 없음 && exit /b 1)
-          echo ...대기 중 (%TRY%/12)
+          if %ERRORLEVEL%==0 (echo ✅ 포트 %DEBUG_PORT% 확인 완료! && goto :PORT_OK)
+          if %TRY% GEQ 6 (echo ❌ 포트 응답 없음 && exit /b 1)
           ping 127.0.0.1 -n 6 > nul
           goto :RETRY_PORT
           :PORT_OK
 
-      - name: 5) GFA 데이터 수집 실행
+      - name: 4. 파이썬 스크립트 실행 (데이터 수집)
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
+          chcp 65001
           set "PYTHONIOENCODING=utf-8"
-          set "PYTHONUTF8=1"
           python gfa_bot_final.py
 
-      - name: 6) [새벽/수동 MAIN 전용] 구글 시트 업로드
-        if: env.MAIN_RUN == 'true'
+      - name: 5. 파이썬 스크립트 실행 (구글 시트 업로드)
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
+          chcp 65001
           set "PYTHONIOENCODING=utf-8"
           python gfa_to_sheet.py
 
-      - name: 7) 작업 완료 처리 (항상 실행)
+      - name: 6. 모든 작업 완료 후 안전 종료
         if: always()
         shell: cmd
         run: |
           chcp 65001
-          if "%MAIN_RUN%"=="true" (
-            echo 🌙 [새벽] 수집 완료. 봇 크롬 정밀 종료.
-            powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-          ) else (
-            echo ☀️ [업무] 세션 연장 완료. 브라우저 유지.
-          )
+          echo 🌙 작업이 모두 완료되었습니다. 봇 전용 크롬을 닫습니다.
+          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
