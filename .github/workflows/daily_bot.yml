@@ -25,7 +25,6 @@ jobs:
           for /f %%H in ('powershell -command "(Get-Date).Hour"') do set CURRENT_HOUR=%%H
           echo 현재 시간: %CURRENT_HOUR%시
           
-          :: 수동으로 실행했거나 새벽 5시인 경우 데이터 수집(MAIN_RUN) 모드 활성화
           if "${{ github.event_name }}"=="workflow_dispatch" (
             echo "⚡ [수동 모드] 메인 수집 강제 실행"
             echo MAIN_RUN=true>> %GITHUB_ENV%
@@ -41,32 +40,27 @@ jobs:
         if: env.MAIN_RUN == 'true'
         shell: cmd
         run: |
-          echo "🧹 모든 크롬 프로세스 강제 정리..."
           taskkill /F /IM chrome.exe /T 2>nul
           ping 127.0.0.1 -n 4 > nul
 
-      - name: 3. 크롬 봇 브라우저 실행 (안정성 강화 및 팝업 차단)
+      - name: 3. 크롬 봇 브라우저 실행 (통신 안정성 극대화)
         shell: cmd
         run: |
-          echo "💉 좀비 프로세스 및 잠금 파일 정리..."
+          echo "💉 좀비 프로세스 정리..."
           powershell -command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
           if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
           
-          echo "🛠️ 크롬 설정 조작 (복구 팝업 방지)..."
-          :: 설정 파일 내 exit_type을 Normal로 강제 치환하여 복구 팝업을 원천 차단합니다.
+          echo "🛠️ 복구 팝업 방지 조작..."
           if exist "${{ env.PROFILE_PATH }}\Default\Preferences" (
             powershell -command "(Get-Content '${{ env.PROFILE_PATH }}\Default\Preferences' -Raw) -replace '\"exit_type\":\"Crashed\"', '\"exit_type\":\"Normal\"' | Set-Content '${{ env.PROFILE_PATH }}\Default\Preferences'"
           )
           
           echo "🌐 봇 브라우저 실행..."
-          :: --remote-allow-origins=* : 파이썬 연결 거부 방지
-          :: --hide-crash-restore-bubble : 팝업 숨김 처리
-          start "" "${{ env.CHROME_PATH }}" --remote-allow-origins=* --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --hide-crash-restore-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
+          :: --remote-debugging-address=0.0.0.0 를 추가하여 로컬 루프백 통신을 강화함
+          start "" "${{ env.CHROME_PATH }}" --remote-allow-origins=* --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --hide-crash-restore-bubble --no-first-run --no-default-browser-check --window-size=1920,1080
           
-          echo "⏳ 브라우저 완전 로딩 대기 (30초)..."
-          ping 127.0.0.1 -n 31 > nul
-
-          echo "🔍 포트 9222 활성화 상태 확인:"
+          echo "⏳ 브라우저 완전 로딩 대기 (40초)..."
+          ping 127.0.0.1 -n 41 > nul
           netstat -ano | findstr 9222
 
       - name: 4. 파이썬 스크립트 실행
@@ -83,7 +77,6 @@ jobs:
         working-directory: ${{ env.WORK_DIR }}
         run: |
           set PYTHONIOENCODING=utf-8
-          set PYTHONUTF8=1
           python gfa_to_sheet.py
 
       - name: 6. 작업 완료 처리
@@ -91,8 +84,5 @@ jobs:
         shell: cmd
         run: |
           if "%MAIN_RUN%"=="true" (
-             echo "🌙 작업 완료. 크롬을 종료합니다."
              taskkill /F /IM chrome.exe /T 2>nul
-          ) else (
-             echo "☀️ 세션 연장 작업 완료."
           )
