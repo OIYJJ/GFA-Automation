@@ -1,77 +1,39 @@
-name: GFA Marketing Bot (Lee's PC)
+name: GFA Daily Automation
 
 on:
   schedule:
-    - cron: '30 20 * * *' # 05:30 KST (새벽 수집)
-    - cron: '0 4 * * *'   # 13:00 KST (점심 세션 연장)
-    - cron: '20 6 * * *'  # 15:20 KST (오후 세션 연장)
+    - cron: '30 20 * * *' # 매일 아침 05:30 실행
   workflow_dispatch:
-    inputs:
-      force_main_run:
-        description: "수동 실행 시 데이터 수집 강제 여부 (true/false)"
-        required: false
-        default: "true"
-
-concurrency:
-  group: gfa-marketing-bot-lee-pc
-  cancel-in-progress: true
-
-env:
-  WORK_DIR: "C:\\Users\\82108\\Desktop\\업무자동화"
-  PROFILE_PATH: "C:\\chrometemp"
 
 jobs:
-  run-local-marketing-bot:
+  run-bot:
     runs-on: [self-hosted, windows]
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
-      - name: 1. 실행 모드 설정 (수집 vs 세션 연장)
+      - name: 1. 이전 작업 찌꺼기 완벽 청소
         shell: cmd
         run: |
           chcp 65001
-          set "FORCE_MAIN=${{ github.event.inputs.force_main_run }}"
-          set "SCHEDULE=${{ github.event.schedule }}"
+          echo 🧹 남아있는 크롬 프로세스와 잠금 파일을 정리합니다...
+          taskkill /F /IM chrome.exe /T >nul 2>&1 || exit 0
+          taskkill /F /IM chromedriver.exe /T >nul 2>&1 || exit 0
+          if exist "C:\chrometemp\SingletonLock" del /f /q "C:\chrometemp\SingletonLock" >nul 2>&1 || exit 0
+          if exist "C:\chrometemp\SingletonCookie" del /f /q "C:\chrometemp\SingletonCookie" >nul 2>&1 || exit 0
+          if exist "C:\chrometemp\SingletonSocket" del /f /q "C:\chrometemp\SingletonSocket" >nul 2>&1 || exit 0
 
-          if /I "%FORCE_MAIN%"=="true" (
-            echo 🌙 [수동-강제] MAIN_RUN=true
-            echo MAIN_RUN=true>> "%GITHUB_ENV%"
-          ) else if "%SCHEDULE%"=="30 20 * * *" (
-            echo 🌙 [새벽 모드] 메인 수집 + 업로드 활성화
-            echo MAIN_RUN=true>> "%GITHUB_ENV%"
-          ) else (
-            echo ☀️ [업무 모드] 세션 연장 모드
-            echo MAIN_RUN=false>> "%GITHUB_ENV%"
-          )
-
-      - name: 2. 이전 크롬 찌꺼기 정리 및 팝업 방지 패치 (BOM 제거 버전)
+      - name: 2. GFA 데이터 수집 (파이썬 스크립트 1)
         shell: cmd
+        working-directory: "C:\\Users\\82108\\Desktop\\업무자동화"
         run: |
           chcp 65001
-          echo 🧹 남아있는 봇 전용 크롬 프로세스를 정리합니다...
-          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-          
-          if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
-          
-          echo 🛠️ 크롬 '비정상 종료' 팝업 방지 (BOM 없이 안전하게 저장)...
-          set "PREF_FILE=${{ env.PROFILE_PATH }}\Default\Preferences"
-          if exist "%PREF_FILE%" (
-            powershell -NoProfile -Command "$p='%PREF_FILE%'; $t=[System.IO.File]::ReadAllText($p); if($t -match 'exit_type\":\"Crashed'){ $t2=$t -replace 'exit_type\":\"Crashed','exit_type\":\"Normal'; $utf8NoBom = New-Object System.Text.UTF8Encoding $false; [System.IO.File]::WriteAllText($p, $t2, $utf8NoBom); echo '✅ 팝업 방지 패치 완료' }"
-          )
-
-      - name: 3. GFA 데이터 수집 (파이썬 스크립트 1)
-        shell: cmd
-        working-directory: ${{ env.WORK_DIR }}
-        run: |
-          chcp 65001
-          set "PYTHONIOENCODING=utf-8"
+          set PYTHONIOENCODING=utf-8
           python gfa_bot_final.py
 
-      - name: 4. 구글 시트 업로드 (파이썬 스크립트 2)
-        if: env.MAIN_RUN == 'true'
+      - name: 3. 구글 시트 업로드 (파이썬 스크립트 2)
         shell: cmd
-        working-directory: ${{ env.WORK_DIR }}
+        working-directory: "C:\\Users\\82108\\Desktop\\업무자동화"
         run: |
           chcp 65001
-          set "PYTHONIOENCODING=utf-8"
+          set PYTHONIOENCODING=utf-8
           python gfa_to_sheet.py
