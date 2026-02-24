@@ -36,30 +36,25 @@ jobs:
             echo MAIN_RUN=false>> %GITHUB_ENV%
           )
 
-      - name: 2. [새벽/수동 전용] 전체 크롬 정리
-        if: env.MAIN_RUN == 'true'
+      - name: 2. 크롬 정리
         shell: cmd
         run: |
           taskkill /F /IM chrome.exe /T 2>nul
           ping 127.0.0.1 -n 4 > nul
 
-      - name: 3. 크롬 봇 브라우저 실행 (통신 안정성 극대화)
+      - name: 3. 크롬 브라우저 실행 (보안 옵션 강화)
         shell: cmd
         run: |
-          echo "💉 좀비 프로세스 정리..."
-          powershell -command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-          if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
-          
-          echo "🛠️ 복구 팝업 방지 조작..."
+          echo "🛠️ 복구 팝업 방지 세팅..."
           if exist "${{ env.PROFILE_PATH }}\Default\Preferences" (
             powershell -command "(Get-Content '${{ env.PROFILE_PATH }}\Default\Preferences' -Raw) -replace '\"exit_type\":\"Crashed\"', '\"exit_type\":\"Normal\"' | Set-Content '${{ env.PROFILE_PATH }}\Default\Preferences'"
           )
           
-          echo "🌐 봇 브라우저 실행..."
-          :: --remote-debugging-address=0.0.0.0 를 추가하여 로컬 루프백 통신을 강화함
-          start "" "${{ env.CHROME_PATH }}" --remote-allow-origins=* --remote-debugging-port=9222 --remote-debugging-address=0.0.0.0 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --hide-crash-restore-bubble --no-first-run --no-default-browser-check --window-size=1920,1080
+          echo "🌐 브라우저 실행..."
+          :: --remote-debugging-address=127.0.0.1 를 명시하여 통신 경로 고정
+          start "" "${{ env.CHROME_PATH }}" --remote-allow-origins=* --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --no-first-run --window-size=1920,1080
           
-          echo "⏳ 브라우저 완전 로딩 대기 (40초)..."
+          echo "⏳ 로딩 대기 (40초)..."
           ping 127.0.0.1 -n 41 > nul
           netstat -ano | findstr 9222
 
@@ -68,21 +63,22 @@ jobs:
         working-directory: ${{ env.WORK_DIR }}
         run: |
           set PYTHONIOENCODING=utf-8
-          set PYTHONUTF8=1
           python gfa_bot_final.py
 
-      - name: 5. [새벽/수동 전용] 구글 시트 업로드
+      - name: 5. 구글 시트 업로드
         if: env.MAIN_RUN == 'true'
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
-        run: |
-          set PYTHONIOENCODING=utf-8
-          python gfa_to_sheet.py
+        run: python gfa_to_sheet.py
 
       - name: 6. 작업 완료 처리
         if: always()
         shell: cmd
         run: |
+          :: env.MAIN_RUN 변수 확인 방식을 더 안전하게 변경 (exit code 128 방지)
           if "%MAIN_RUN%"=="true" (
+             echo "🌙 새벽 작업 완료. 크롬 종료."
              taskkill /F /IM chrome.exe /T 2>nul
+          ) else (
+             echo "☀️ 업무 연장 완료."
           )
