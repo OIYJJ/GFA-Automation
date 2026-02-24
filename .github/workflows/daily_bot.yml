@@ -1,19 +1,12 @@
-name: GFA Marketing Bot (Lee's PC)
+name: GFA Daily Update (Lee PC)
 
 on:
   schedule:
-    # 한국 시간 기준 매일 아침 05:30 실행 (UTC 기준 20:30)
-    - cron: '30 20 * * *'
+    - cron: '30 20 * * *' # 05:30 KST (UTC+9)
   workflow_dispatch:
-    inputs:
-      force_run:
-        description: "수동으로 즉시 실행하시겠습니까?"
-        required: true
-        type: boolean
-        default: true
 
 concurrency:
-  group: gfa-marketing-bot-lee-pc
+  group: gfa-daily-lee-pc
   cancel-in-progress: true
 
 env:
@@ -23,35 +16,37 @@ env:
   DEBUG_PORT: "9222"
 
 jobs:
-  run-local-bot:
-    runs-on: [self-hosted, windows]
+  run-gfa:
+    runs-on: [self-hosted, windows, x64]
     timeout-minutes: 30
 
     steps:
-      - name: 1. 기존 봇 크롬 및 찌꺼기 완벽 청소
+      - name: 1) 사전 점검
         shell: cmd
         run: |
           chcp 65001
-          echo 🧹 이전 작업의 찌꺼기를 청소합니다...
-          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-          if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
-          ping 127.0.0.1 -n 3 > nul
+          if not exist "${{ env.WORK_DIR }}" (echo ❌ WORK_DIR 없음 && exit /b 1)
+          if not exist "${{ env.CHROME_PATH }}" (echo ❌ CHROME_PATH 없음 && exit /b 1)
+          where python || (echo ❌ python 없음 && exit /b 1)
+          if not exist "${{ env.PROFILE_PATH }}" mkdir "${{ env.PROFILE_PATH }}"
 
-      - name: 2. 크롬 일기장 조작 (비정상 종료 팝업 원천 차단)
+      - name: 2) 봇 크롬 정밀 종료 + 잠금파일 제거
         shell: cmd
         run: |
           chcp 65001
-          echo 🛠️ 크롬이 '정상 종료'되었다고 속여 복구 팝업을 막습니다...
-          set "PREF_FILE=${{ env.PROFILE_PATH }}\Default\Preferences"
-          if exist "%PREF_FILE%" (
-            powershell -NoProfile -Command "$p='%PREF_FILE%'; $t=Get-Content $p -Raw; if($t -match 'exit_type\":\"Crashed'){ $t2=$t -replace 'exit_type\":\"Crashed','exit_type\":\"Normal'; Set-Content $p $t2 -Encoding UTF8; echo '✅ 팝업 차단 패치 완료' }"
-          )
+          echo 🧹 chrometemp 사용하는 크롬만 종료...
+          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
 
-      - name: 3. 봇 전용 크롬 브라우저 안전 실행
+          echo 🔓 Singleton* 제거...
+          del /f /q "${{ env.PROFILE_PATH }}\SingletonLock" 2>nul
+          del /f /q "${{ env.PROFILE_PATH }}\SingletonCookie" 2>nul
+          del /f /q "${{ env.PROFILE_PATH }}\SingletonSocket" 2>nul
+
+      - name: 3) 크롬 실행 (원격디버깅)
         shell: cmd
         run: |
           chcp 65001
-          echo 🌐 통신 주소를 127.0.0.1로 고정하여 크롬을 켭니다...
+          echo 🌐 Chrome start...
           start "" "${{ env.CHROME_PATH }}" ^
             --remote-allow-origins=* ^
             --remote-debugging-port=${{ env.DEBUG_PORT }} ^
@@ -62,39 +57,51 @@ jobs:
             --disable-session-crashed-bubble ^
             --hide-crash-restore-bubble ^
             --no-first-run ^
+            --no-default-browser-check ^
             --window-size=1920,1080
 
-          echo ⏳ 브라우저 준비 대기 및 포트 검사 (최대 30초)...
+      - name: 4) DevTools 응답 확인 (json/version)
+        shell: cmd
+        run: |
+          chcp 65001
+          echo ⏳ DevTools ready check (최대 60초)...
           set /a TRY=0
-          :RETRY_PORT
+          :RETRY
           set /a TRY+=1
-          powershell -NoProfile -Command "if ((Test-NetConnection 127.0.0.1 -Port ${{ env.DEBUG_PORT }}).TcpTestSucceeded) { exit 0 } else { exit 1 }"
-          if %ERRORLEVEL%==0 (echo ✅ 포트 %DEBUG_PORT% 확인 완료! && goto :PORT_OK)
-          if %TRY% GEQ 6 (echo ❌ 포트 응답 없음 && exit /b 1)
+          powershell -NoProfile -Command "try { $r = Invoke-WebRequest -UseBasicParsing http://127.0.0.1:${{ env.DEBUG_PORT }}/json/version -TimeoutSec 2; if($r.StatusCode -eq 200){ exit 0 } else { exit 1 } } catch { exit 1 }"
+          if %ERRORLEVEL%==0 (
+            echo ✅ DevTools OK
+            powershell -NoProfile -Command "Invoke-WebRequest -UseBasicParsing http://127.0.0.1:${{ env.DEBUG_PORT }}/json/version -TimeoutSec 2 | Select-Object -Expand Content"
+            goto :OK
+          )
+          if %TRY% GEQ 12 (echo ❌ DevTools not ready && exit /b 1)
+          echo ...retry (%TRY%/12)
           ping 127.0.0.1 -n 6 > nul
-          goto :RETRY_PORT
-          :PORT_OK
+          goto :RETRY
+          :OK
 
-      - name: 4. 파이썬 스크립트 실행 (데이터 수집)
+      - name: 5) GFA 수집 실행
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
           chcp 65001
           set "PYTHONIOENCODING=utf-8"
+          set "PYTHONUTF8=1"
           python gfa_bot_final.py
 
-      - name: 5. 파이썬 스크립트 실행 (구글 시트 업로드)
+      - name: 6) 구글 시트 업로드 실행
         shell: cmd
         working-directory: ${{ env.WORK_DIR }}
         run: |
           chcp 65001
           set "PYTHONIOENCODING=utf-8"
+          set "PYTHONUTF8=1"
           python gfa_to_sheet.py
 
-      - name: 6. 모든 작업 완료 후 안전 종료
+      - name: 7) 종료 처리 (항상)
         if: always()
         shell: cmd
         run: |
           chcp 65001
-          echo 🌙 작업이 모두 완료되었습니다. 봇 전용 크롬을 닫습니다.
-          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome(driver)?\.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
+          echo 🧹 봇 크롬 종료...
+          powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
