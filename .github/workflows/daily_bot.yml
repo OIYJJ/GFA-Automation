@@ -1,183 +1,138 @@
 name: GFA Marketing Bot (Lee's PC)
 
-
-
 on:
-
   schedule:
-
-    - cron: '30 20 * * *' # 05:30 (새벽 메인)
-
-    - cron: '0 4 * * *'   # 13:00 (점심 연장)
-
-    - cron: '20 6 * * *'  # 15:20 (오후 연장)
-
+    - cron: '30 20 * * *' # 05:30 KST (새벽 메인)  [GitHub cron은 UTC 기준]
+    - cron: '0 4 * * *'   # 13:00 KST (점심 연장)
+    - cron: '20 6 * * *'  # 15:20 KST (오후 연장)
   workflow_dispatch:
+    inputs:
+      force_main_run:
+        description: "수동 실행 시 MAIN_RUN 강제(true/false). 비우면 schedule 기준으로 자동 결정"
+        required: false
+        default: ""
 
-
+# 동시 실행 방지 (이전 실행이 남아있으면 큐잉/취소로 충돌 방지)
+concurrency:
+  group: gfa-marketing-bot-lee-pc
+  cancel-in-progress: true
 
 env:
-
   WORK_DIR: "C:\\Users\\82108\\Desktop\\업무자동화"
-
   CHROME_PATH: "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe"
-
   PROFILE_PATH: "C:\\chrometemp"
-
-
+  DEBUG_PORT: "9222"
 
 jobs:
-
   run-local-marketing-bot:
-
     runs-on: self-hosted
-
-    timeout-minutes: 10
-
-    
+    timeout-minutes: 30
 
     steps:
-
-      - name: 1. 시간대 확인 및 모드 설정
-
+      - name: 1. 트리거 기준 모드 설정 (schedule / workflow_dispatch)
         shell: cmd
-
         run: |
-
           chcp 65001
 
-          for /f %%H in ('powershell -command "(Get-Date).Hour"') do set CURRENT_HOUR=%%H
+          set "FORCE_MAIN=${{ github.event.inputs.force_main_run }}"
+          set "SCHEDULE=${{ github.event.schedule }}"
 
-          echo 현재 시간: %CURRENT_HOUR%시
+          echo Trigger schedule: %SCHEDULE%
+          echo Force main input: %FORCE_MAIN%
 
-          
-
-          if "%CURRENT_HOUR%"=="5" (
-
-            echo "🌙 [새벽 모드] 메인 수집 작업"
-
-            echo MAIN_RUN=true>> %GITHUB_ENV%
-
-          ) else (
-
-            echo "☀️ [업무 모드] 세션 연장 작업"
-
-            echo MAIN_RUN=false>> %GITHUB_ENV%
-
+          REM 1) 수동 실행에서 force_main_run이 지정되면 그 값을 우선 적용
+          if not "%FORCE_MAIN%"=="" (
+            if /I "%FORCE_MAIN%"=="true" (
+              echo 🌙 [수동-강제] MAIN_RUN=true
+              echo MAIN_RUN=true>> "%GITHUB_ENV%"
+              goto :EOF
+            )
+            if /I "%FORCE_MAIN%"=="false" (
+              echo ☀️ [수동-강제] MAIN_RUN=false
+              echo MAIN_RUN=false>> "%GITHUB_ENV%"
+              goto :EOF
+            )
+            echo ⚠️ force_main_run 값이 true/false가 아닙니다. 자동 판별로 진행합니다.
           )
 
+          REM 2) schedule 기반 자동 판별 (UTC cron 문자열로 구분)
+          REM    - '30 20 * * *' => KST 05:30 메인
+          if "%SCHEDULE%"=="30 20 * * *" (
+            echo 🌙 [새벽 모드] 메인 수집 + 업로드
+            echo MAIN_RUN=true>> "%GITHUB_ENV%"
+          ) else (
+            echo ☀️ [업무 모드] 세션 연장(수집만 수행)
+            echo MAIN_RUN=false>> "%GITHUB_ENV%"
+          )
 
-
-      - name: 2. [새벽 전용] 전체 크롬 정리
-
-        if: env.MAIN_RUN == 'true'
-
+      - name: 2. 크롬/프로필 정리 (chrometemp 대상만)
         shell: cmd
-
         run: |
-
-          echo "🧹 [새벽] 모든 크롬 프로세스 강제 정리..."
-
-          :: [/F] 옵션을 추가하여 좀비 프로세스까지 확실하게 강제 종료합니다.
-
-          taskkill /F /IM chrome.exe /T 2>nul
-
-          ping 127.0.0.1 -n 4 > nul
-
-
-
-      - name: 3. 크롬 봇 브라우저 실행 (안정성 강화)
-
-        shell: cmd
-
-        run: |
-
-          echo "💉 [업무모드] 좀비 프로세스 방지 (chrometemp만 종료)..."
+          chcp 65001
+          echo 🧹 chrometemp 기반 chrome.exe만 종료합니다...
 
           powershell -command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
-
           ping 127.0.0.1 -n 3 > nul
 
-          
-
-          echo "🔓 프로필 잠금 파일(SingletonLock) 삭제 중..."
-
-          :: 크롬 비정상 종료 시 남는 잠금 파일을 제거하여 실행 실패를 방지합니다.
-
+          echo 🔓 프로필 잠금 파일(Singleton*) 정리 중...
           if exist "${{ env.PROFILE_PATH }}\SingletonLock" del /f /q "${{ env.PROFILE_PATH }}\SingletonLock"
+          if exist "${{ env.PROFILE_PATH }}\SingletonCookie" del /f /q "${{ env.PROFILE_PATH }}\SingletonCookie"
+          if exist "${{ env.PROFILE_PATH }}\SingletonSocket" del /f /q "${{ env.PROFILE_PATH }}\SingletonSocket"
 
-          
+      - name: 3. 크롬 봇 브라우저 실행 및 포트 검증
+        shell: cmd
+        run: |
+          chcp 65001
 
-          echo "🌐 봇 브라우저 실행..."
+          echo 🌐 봇 브라우저 실행...
+          start "" "${{ env.CHROME_PATH }}" ^
+            --remote-debugging-port=${{ env.DEBUG_PORT }} ^
+            --user-data-dir="${{ env.PROFILE_PATH }}" ^
+            --disable-gpu ^
+            --disable-dev-shm-usage ^
+            --disable-session-crashed-bubble ^
+            --disable-infobars ^
+            --no-first-run ^
+            --no-default-browser-check ^
+            --window-size=1920,1080
 
-          start "" "${{ env.CHROME_PATH }}" --remote-debugging-port=9222 --user-data-dir="${{ env.PROFILE_PATH }}" --disable-gpu --disable-dev-shm-usage --disable-session-crashed-bubble --disable-infobars --no-first-run --no-default-browser-check --window-size=1920,1080
-
-          
-
-          echo "⏳ 브라우저 완전 로딩 대기 (30초)..."
-
+          echo ⏳ 브라우저 로딩 대기 (30초)...
           ping 127.0.0.1 -n 31 > nul
 
+          echo 🔍 포트 ${{ env.DEBUG_PORT }} 활성화 확인...
+          powershell -command "if (-not (Test-NetConnection 127.0.0.1 -Port $env:DEBUG_PORT).TcpTestSucceeded) { Write-Host '❌ Port not open'; exit 1 } else { Write-Host '✅ Port open' }"
 
+          echo (참고) netstat 출력:
+          netstat -ano | findstr ${{ env.DEBUG_PORT }}
 
-          echo "🔍 포트 9222 활성화 상태 확인:"
-
-          :: 파이썬 실행 전 포트가 정상적으로 열렸는지 로그에 출력합니다.
-
-          netstat -ano | findstr 9222
-
-
-
-      - name: 4. 파이썬 스크립트 실행
-
+      - name: 4. 파이썬 스크립트 실행 (GFA 수집)
         shell: cmd
-
         run: |
-
+          chcp 65001
           set PYTHONIOENCODING=utf-8
-
           set PYTHONUTF8=1
-
           cd /d "${{ env.WORK_DIR }}"
-
+          echo ▶ MAIN_RUN=%MAIN_RUN%
           python gfa_bot_final.py
 
-
-
       - name: 5. [새벽 전용] 구글 시트 업로드
-
         if: env.MAIN_RUN == 'true'
-
         shell: cmd
-
         run: |
-
+          chcp 65001
           set PYTHONIOENCODING=utf-8
-
           set PYTHONUTF8=1
-
           cd /d "${{ env.WORK_DIR }}"
-
           python gfa_to_sheet.py
 
-
-
-      - name: 6. 작업 완료 처리
-
+      - name: 6. 작업 완료 처리 (항상 실행)
         if: always()
-
         shell: cmd
-
         run: |
-
+          chcp 65001
           if "%MAIN_RUN%"=="true" (
-
-             echo "🌙 [새벽] 작업 완료. 전체 종료."
-
-             taskkill /F /IM chrome.exe /T 2>nul
-
+            echo 🌙 [새벽] 작업 완료. chrometemp chrome 종료.
+            powershell -command "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'chrome.exe' -and $_.CommandLine -like '*chrometemp*' } | Stop-Process -Force -ErrorAction SilentlyContinue"
           ) else (
-
-             echo "☀️ [업무] 작업 완료. 세션 연장 성공."
-
+            echo ☀️ [업무] 작업 완료. 세션 연장 성공(브라우저 유지).
           )
